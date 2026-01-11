@@ -4,6 +4,9 @@ const WebSocket = require("ws");
 const app = express();
 app.use(express.json());
 
+// ==================
+// GAME STATE
+// ==================
 let currentWord = null;
 let gameActive = false;
 let winnerData = null;
@@ -17,6 +20,7 @@ app.get("/", (req, res) => {
   res.send("3BS Kick Server is running ✅");
 });
 
+// بدء جولة جديدة + إرسال الكلمة
 app.post("/set-word", (req, res) => {
   const { word } = req.body;
 
@@ -24,44 +28,65 @@ app.post("/set-word", (req, res) => {
     return res.status(400).json({ error: "No word provided" });
   }
 
-  currentWord = word.toLowerCase();
+  currentWord = word.toLowerCase().trim();
   gameActive = true;
   winnerData = null;
   roundStartTime = Date.now();
 
-  console.log("🎯 New round word:", currentWord);
+  console.log("🎯 New round started. Word:", currentWord);
 
   res.json({ success: true });
 });
 
+// جلب آخر فوز
 app.get("/last-win", (req, res) => {
   res.json(winnerData);
 });
 
 // ==================
-// KICK CHAT WEBSOCKET
+// KICK IRC WEBSOCKET
 // ==================
 
 const channelName = "absi"; // اسم قناة Kick
-const kickWsUrl = `wss://chat.kick.com/chatroom/${channelName}`;
+const kickWsUrl = "wss://irc-ws.chat.kick.com";
 
-console.log("🔌 Connecting to Kick chat:", channelName);
+console.log("🔌 Connecting to Kick IRC chat:", channelName);
 
 const ws = new WebSocket(kickWsUrl);
 
 ws.on("open", () => {
-  console.log("✅ Connected to Kick chat");
+  console.log("✅ Connected to Kick IRC");
+
+  // تسجيل دخول كـ Guest
+  ws.send("PASS oauth:anonymous");
+  ws.send("NICK justinfan12345");
+  ws.send(`JOIN #${channelName}`);
 });
 
 ws.on("message", (data) => {
   try {
-    const message = JSON.parse(data.toString());
+    const raw = data.toString();
 
-    // نتأكد إنها رسالة شات
-    if (!message?.data?.content || !message?.data?.sender?.username) return;
+    // رد على PING
+    if (raw.startsWith("PING")) {
+      ws.send("PONG :kick.com");
+      return;
+    }
 
-    const chatMessage = message.data.content.toLowerCase().trim();
-    const username = message.data.sender.username;
+    // نقرأ فقط رسائل الشات
+    if (!raw.includes("PRIVMSG")) return;
+
+    // مثال:
+    // :username!username@username PRIVMSG #absi :hello
+    const parts = raw.split(" ");
+    const username = parts[0].split("!")[0].replace(":", "");
+    const chatMessage = raw
+      .split("PRIVMSG")[1]
+      .split(":")
+      .slice(1)
+      .join(":")
+      .toLowerCase()
+      .trim();
 
     if (!gameActive || !currentWord) return;
     if (winnerData) return;
@@ -72,28 +97,30 @@ ws.on("message", (data) => {
       winnerData = {
         word: currentWord,
         winner: username,
-        duration,
-        hintsUsed: 0, // أنت تحسبها من الواجهة
+        duration, // بالثواني
+        hintsUsed: 0, // تحسبها من الواجهة
         date: new Date().toLocaleString()
       };
 
       gameActive = false;
 
-      console.log("🏆 WINNER:", winnerData);
+      console.log("🏆 WINNER FOUND:", winnerData);
     }
   } catch (err) {
-    console.error("❌ Kick message error:", err.message);
+    console.error("❌ Message parse error:", err.message);
   }
 });
 
 ws.on("close", () => {
-  console.log("❌ Disconnected from Kick chat");
+  console.log("❌ Disconnected from Kick IRC");
 });
 
 ws.on("error", (err) => {
   console.error("❌ WebSocket error:", err.message);
 });
 
+// ==================
+// START SERVER
 // ==================
 
 const PORT = process.env.PORT || 3000;
