@@ -1,28 +1,29 @@
 const express = require("express");
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-/* ====== CORS (حل المشكلة الأساسية) ====== */
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
-});
 
 app.use(express.json());
 
-/* ====== حالة اللعبة ====== */
+// ==========================
+// GAME STATE
+// ==========================
 let currentWord = null;
-let lastWinner = null;
+let gameActive = false;
+let winnerData = null;
+let roundStartTime = null;
 
-/* ====== الصفحة الرئيسية ====== */
+let messages = []; // شات اللعبة
+const MAX_MESSAGES = 100;
+
+// ==========================
+// ROUTES
+// ==========================
+
+// فحص السيرفر
 app.get("/", (req, res) => {
-  res.send("3BS Kick Server is running ✅");
+  res.send("3BS Game Server is running ✅");
 });
 
-/* ====== تعيين الكلمة ====== */
+// بدء جولة جديدة
 app.post("/set-word", (req, res) => {
   const { word } = req.body;
 
@@ -31,32 +32,74 @@ app.post("/set-word", (req, res) => {
   }
 
   currentWord = word.toLowerCase().trim();
-  lastWinner = null;
+  gameActive = true;
+  winnerData = null;
+  roundStartTime = Date.now();
+  messages = [];
 
-  console.log("🎯 New word set:", currentWord);
+  console.log("🎯 New round word:", currentWord);
+
   res.json({ success: true });
 });
 
-/* ====== تسجيل فائز ====== */
-app.post("/win", (req, res) => {
-  const { username } = req.body;
+// إرسال رسالة / تخمين
+app.post("/send-message", (req, res) => {
+  const { username, message } = req.body;
 
-  if (!username) {
-    return res.status(400).json({ error: "No username" });
+  if (!username || !message) {
+    return res.status(400).json({ error: "Missing data" });
   }
 
-  lastWinner = username;
-  console.log("🏆 Winner:", username);
+  if (!gameActive) {
+    return res.json({ ignored: true });
+  }
+
+  const cleanMessage = message.toLowerCase().trim();
+
+  const msgObj = {
+    username,
+    message,
+    time: Date.now()
+  };
+
+  messages.push(msgObj);
+
+  if (messages.length > MAX_MESSAGES) {
+    messages.shift();
+  }
+
+  // تحقق من الفوز
+  if (!winnerData && cleanMessage === currentWord) {
+    const duration = Math.floor((Date.now() - roundStartTime) / 1000);
+
+    winnerData = {
+      winner: username,
+      word: currentWord,
+      duration,
+      date: new Date().toLocaleString()
+    };
+
+    gameActive = false;
+
+    console.log("🏆 WINNER:", winnerData);
+  }
 
   res.json({ success: true });
 });
 
-/* ====== جلب آخر فائز ====== */
-app.get("/last-win", (req, res) => {
-  res.json({ winner: lastWinner });
+// جلب رسائل الشات
+app.get("/messages", (req, res) => {
+  res.json(messages);
 });
 
-/* ====== تشغيل السيرفر ====== */
+// جلب آخر فائز
+app.get("/last-win", (req, res) => {
+  res.json(winnerData);
+});
+
+// ==========================
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("🚀 Server running on port", PORT);
 });
