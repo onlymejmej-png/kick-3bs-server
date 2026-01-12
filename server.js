@@ -1,29 +1,28 @@
 const express = require("express");
-
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+/* ====== CORS (حل المشكلة الأساسية) ====== */
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
 app.use(express.json());
 
-// ==================
-// GAME STATE
-// ==================
+/* ====== حالة اللعبة ====== */
 let currentWord = null;
-let gameActive = false;
-let winnerData = null;
-let roundStartTime = null;
-let totalRounds = 0;
-let winningRounds = 0;
-let roundsHistory = [];
+let lastWinner = null;
 
-// ==================
-// ROUTES
-// ==================
-
-// فحص السيرفر
+/* ====== الصفحة الرئيسية ====== */
 app.get("/", (req, res) => {
   res.send("3BS Kick Server is running ✅");
 });
 
-// بدء جولة جديدة
+/* ====== تعيين الكلمة ====== */
 app.post("/set-word", (req, res) => {
   const { word } = req.body;
 
@@ -31,80 +30,33 @@ app.post("/set-word", (req, res) => {
     return res.status(400).json({ error: "No word provided" });
   }
 
-  currentWord = word.toLowerCase();
-  gameActive = true;
-  winnerData = null;
-  roundStartTime = Date.now();
-  totalRounds++;
+  currentWord = word.toLowerCase().trim();
+  lastWinner = null;
 
-  console.log("🎯 New round started:", currentWord);
+  console.log("🎯 New word set:", currentWord);
+  res.json({ success: true });
+});
+
+/* ====== تسجيل فائز ====== */
+app.post("/win", (req, res) => {
+  const { username } = req.body;
+
+  if (!username) {
+    return res.status(400).json({ error: "No username" });
+  }
+
+  lastWinner = username;
+  console.log("🏆 Winner:", username);
 
   res.json({ success: true });
 });
 
-// تسجيل فوز (يأتي من الواجهة)
-app.post("/report-win", (req, res) => {
-  if (!gameActive || winnerData) {
-    return res.json({ ignored: true });
-  }
-
-  const { winner, hintsUsed = 0 } = req.body;
-
-  if (!winner) {
-    return res.status(400).json({ error: "No winner name" });
-  }
-
-  const duration = Math.floor((Date.now() - roundStartTime) / 1000);
-
-  winnerData = {
-    word: currentWord,
-    winner,
-    duration,
-    hintsUsed,
-    date: new Date().toLocaleString()
-  };
-
-  gameActive = false;
-  winningRounds++;
-
-  roundsHistory.push(winnerData);
-
-  console.log("🏆 WINNER:", winnerData);
-
-  res.json({ success: true, winnerData });
-});
-
-// آخر فوز
+/* ====== جلب آخر فائز ====== */
 app.get("/last-win", (req, res) => {
-  res.json(winnerData);
+  res.json({ winner: lastWinner });
 });
 
-// سجل الجولات
-app.get("/stats", (req, res) => {
-  res.json({
-    totalRounds,
-    winningRounds,
-    winRate:
-      totalRounds === 0
-        ? 0
-        : Math.round((winningRounds / totalRounds) * 100),
-    roundsHistory
-  });
-});
-
-// إعادة الإحصائيات
-app.post("/reset-stats", (req, res) => {
-  totalRounds = 0;
-  winningRounds = 0;
-  roundsHistory = [];
-  winnerData = null;
-
-  res.json({ success: true });
-});
-
-// ==================
-
-const PORT = process.env.PORT || 3000;
+/* ====== تشغيل السيرفر ====== */
 app.listen(PORT, () => {
-  console.log("🚀 Server running on port", PORT);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
